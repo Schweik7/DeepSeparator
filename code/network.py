@@ -206,4 +206,3 @@ class DeepSeparator(nn.Module):
         output = torch.squeeze(output, 1)
 
         return output
-

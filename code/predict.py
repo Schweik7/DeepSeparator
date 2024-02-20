@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from network import DeepSeparator
 
+os.chdir(os.path.dirname(__file__))
 
 model_name = 'DeepSeparator'
 

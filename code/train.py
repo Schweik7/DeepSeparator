@@ -5,7 +5,8 @@ import torch.nn as nn
 import os
 import numpy as np
 from network import DeepSeparator
-
+from torch.optim.lr_scheduler import StepLR
+os.chdir(os.path.dirname(__file__))
 
 def standardization(data):
     mu = np.mean(data, axis=0)
@@ -22,6 +23,7 @@ mini_loss = 1
 print_loss_frequency = 1
 print_train_accuracy_frequency = 1
 test_frequency = 1
+
 
 model_name = 'DeepSeparator'
 model = DeepSeparator()
@@ -84,7 +86,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
+scheduler = StepLR(optimizer, step_size=30, gamma=0.1) #定义学习率调度器
 if os.path.exists('checkpoint/' + model_name + '.pkl'):
     print('load model')
     model.load_state_dict(torch.load('checkpoint/' + model_name + '.pkl'))
@@ -151,3 +153,4 @@ for epoch in range(epochs):
             print('save model')
             torch.save(model.state_dict(), 'checkpoint/' + model_name + '.pkl')
             mini_loss = average_test_loss_per_epoch
+    scheduler.step()
