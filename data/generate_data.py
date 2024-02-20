@@ -8,7 +8,8 @@ import os
 
 #  定义获取RMS（均方根值）的函数
 def get_rms(records):
-    return math.sqrt(sum([x ** 2 for x in records]) / len(records))
+    epsilon = 1e-10  # 定义一个小的正数以避免除以零
+    return np.sqrt(np.mean(np.square(records)) + epsilon)
 
 # 定义函数用于随机打乱信号，增加数据多样性
 def random_signal(signal, combin_num):
@@ -33,6 +34,16 @@ def standardize(data):
 # 定义数据准备和处理函数
 def data_prepare(EEG_all, noise_all, combin_num, train_num, val_num, test_num):
     # 分割数据集
+    min_length = min(len(EEG_all), len(noise_all))
+    EEG_all = EEG_all[:min_length]
+    noise_all = noise_all[:min_length]
+
+    # 分割数据集
+    split1 = train_num
+    split2 = train_num + val_num
+    eeg_train, eeg_val, eeg_test = np.split(EEG_all, [split1, split2])
+    noise_train, noise_val, noise_test = np.split(noise_all, [split1, split2])
+    
     split1 = train_num
     split2 = train_num + val_num
     eeg_train, eeg_val, eeg_test = np.split(EEG_all, [split1, split2])
@@ -79,7 +90,7 @@ def data_prepare(EEG_all, noise_all, combin_num, train_num, val_num, test_num):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__))
-    
+
     train_num = 3000  # 训练集大小
     val_num = 500    # 验证集大小
     test_num = 500   # 测试集大小
@@ -88,6 +99,7 @@ if __name__ == '__main__':
     # 加载EEG和EOG数据
     EEG_all = np.load("EEG_all_epochs.npy")
     EOG_all = np.load("EOG_all_epochs.npy")
+    print("EEG_all shape:", EEG_all.shape, "EOG_all shape:", EOG_all.shape)
     
     # 调用data_prepare函数准备数据
     train_input, train_output, val_input, val_output, test_input, test_output = data_prepare(EEG_all, EOG_all, combin_num, train_num, val_num, test_num)
@@ -99,5 +111,3 @@ if __name__ == '__main__':
     np.save("./val_output.npy", val_output)
     np.save("./test_input.npy", test_input)
     np.save("./test_output.npy", test_output)
-
-

@@ -6,6 +6,8 @@ import os
 import numpy as np
 from network import DeepSeparator
 from torch.optim.lr_scheduler import StepLR
+
+# 设定工作目录为当前文件所在目录
 os.chdir(os.path.dirname(__file__))
 
 def standardization(data):
@@ -13,144 +15,79 @@ def standardization(data):
     sigma = np.std(data, axis=0)
     return (data - mu) / sigma
 
-
+# 定义超参数
 BATCH_SIZE = 1000
 learning_rate = 1e-4
 epochs = 1000
+mini_loss = float('inf')  # 初始化为无穷大
 
-mini_loss = 1
-
-print_loss_frequency = 1
-print_train_accuracy_frequency = 1
-test_frequency = 1
-
-
-model_name = 'DeepSeparator'
-model = DeepSeparator()
-loss = nn.MSELoss(reduction='mean')
-
+# 加载数据集
 raw_eeg = np.load('../data/train_input.npy')
 clean_eeg = np.load('../data/train_output.npy')
-
-artifact1 = np.load('../data/EOG_all_epochs.npy')
-artifact2 = np.load('../data/EMG_all_epochs.npy')
-
+val_input = np.load('../data/val_input.npy')  # 加载验证集输入
+val_output = np.load('../data/val_output.npy')  # 加载验证集输出
 test_input = np.load('../data/test_input.npy')
 test_output = np.load('../data/test_output.npy')
 
-artifact1 = standardization(artifact1)
-artifact2 = standardization(artifact2)
-artifact = np.concatenate((artifact1, artifact2), axis=0)
+# 数据预处理
+val_input = torch.from_numpy(val_input).float()
+val_output = torch.from_numpy(val_output).float()
 
-indicator1 = np.zeros(raw_eeg.shape[0])
-indicator2 = np.ones(artifact.shape[0])
-indicator3 = np.zeros(clean_eeg.shape[0])
-indicator = np.concatenate((indicator1, indicator2, indicator3), axis=0)
+# 创建DataLoader
+train_input = torch.from_numpy(raw_eeg).float()
+train_output = torch.from_numpy(clean_eeg).float()
+train_torch_dataset = Data.TensorDataset(train_input, train_output)
+train_loader = Data.DataLoader(dataset=train_torch_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-train_input = np.concatenate((raw_eeg, artifact, clean_eeg), axis=0)
-train_output = np.concatenate((clean_eeg, artifact, clean_eeg), axis=0)
+val_torch_dataset = Data.TensorDataset(val_input, val_output)
+val_loader = Data.DataLoader(dataset=val_torch_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-indicator = torch.from_numpy(indicator)
-indicator = indicator.unsqueeze(1)
-
-train_input = torch.from_numpy(train_input)
-train_output = torch.from_numpy(train_output)
-
-train_torch_dataset = Data.TensorDataset(train_input, indicator, train_output)
-
-train_loader = Data.DataLoader(
-    dataset=train_torch_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
-)
-
-test_input = torch.from_numpy(test_input)
-test_output = torch.from_numpy(test_output)
-
-test_indicator = np.zeros(test_input.shape[0])
-test_indicator = torch.from_numpy(test_indicator)
-test_indicator = test_indicator.unsqueeze(1)
-
-test_torch_dataset = Data.TensorDataset(test_input, test_indicator, test_output)
-
-test_loader = Data.DataLoader(
-    dataset=test_torch_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=False,
-)
-
-print("torch.cuda.is_available() = ", torch.cuda.is_available())
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-model.to(device)
-
+# 初始化模型、损失函数和优化器
+model = DeepSeparator().to(device)
+loss = nn.MSELoss(reduction='mean')
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-scheduler = StepLR(optimizer, step_size=30, gamma=0.1) #定义学习率调度器
-if os.path.exists('checkpoint/' + model_name + '.pkl'):
-    print('load model')
-    model.load_state_dict(torch.load('checkpoint/' + model_name + '.pkl'))
+scheduler = StepLR(optimizer, step_size=30, gamma=0.1)  # 学习率调度器
 
+# 模型训练循环
 for epoch in range(epochs):
-
-    train_acc = 0
-    train_loss = 0
-
-    total_train_loss_per_epoch = 0
-    average_train_loss_per_epoch = 0
-    train_step_num = 0
-
-    for step, (train_input, indicator, train_output) in enumerate(train_loader):
-
-        train_step_num += 1
-
-        indicator = indicator.float().to(device)
-        train_input = train_input.float().to(device)
-        train_output = train_output.float().to(device)
-
+    model.train()
+    total_train_loss = 0
+    for batch in train_loader:
+        inputs, targets = batch
+        inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-
-        train_preds = model(train_input, indicator)
-
-        train_loss = loss(train_preds, train_output)
-
-        total_train_loss_per_epoch += train_loss.item()
-
+        outputs = model(inputs)
+        train_loss = loss(outputs, targets)
         train_loss.backward()
         optimizer.step()
-
-    average_train_loss_per_epoch = total_train_loss_per_epoch / train_step_num
-
+        total_train_loss += train_loss.item()
+    
+    # 计算平均训练损失
+    avg_train_loss = total_train_loss / len(train_loader)
+    
+    # 模型验证
+    model.eval()
+    total_val_loss = 0
+    with torch.no_grad():
+        for batch in val_loader:
+            inputs, targets = batch
+            inputs, targets = inputs.to(device), targets.to(device)
+            outputs = model(inputs)
+            val_loss = loss(outputs, targets)
+            total_val_loss += val_loss.item()
+    
+    # 计算平均验证损失
+    avg_val_loss = total_val_loss / len(val_loader)
+    
+    # 打印训练和验证损失
     if epoch % print_loss_frequency == 0:
-        print('train loss: ', average_train_loss_per_epoch)
-
-    test_step_num = 0
-    total_test_loss_per_epoch = 0
-    average_test_loss_per_epoch = 0
-
-    if epoch % test_frequency == 0:
-
-        for step, (test_input, test_indicator, test_output) in enumerate(test_loader):
-
-            test_step_num += 1
-
-            test_indicator = test_indicator.float().to(device)
-
-            test_input = test_input.float().to(device)
-            test_output = test_output.float().to(device)
-
-            test_preds = model(test_input, test_indicator)
-
-            test_loss = loss(test_preds, test_output)
-
-            total_test_loss_per_epoch += test_loss.item()
-
-        average_test_loss_per_epoch = total_test_loss_per_epoch / test_step_num
-
-        print('--------------test loss: ', average_test_loss_per_epoch)
-
-        if average_test_loss_per_epoch < mini_loss:
-            print('save model')
-            torch.save(model.state_dict(), 'checkpoint/' + model_name + '.pkl')
-            mini_loss = average_test_loss_per_epoch
+        print(f'Epoch {epoch}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}')
+    
+    # 保存性能最佳的模型
+    if avg_val_loss < mini_loss:
+        print('Validation loss decreased ({:.6f} --> {:.6f}). Saving model ...'.format(mini_loss, avg_val_loss))
+        torch.save(model.state_dict(), 'checkpoint/' + model_name + '.pt')
+        mini_loss = avg_val_loss
+    
     scheduler.step()
+
