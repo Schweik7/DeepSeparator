@@ -1,6 +1,6 @@
 import numpy as np
 import math
-
+import os
 
 # Author: Haoming Zhang
 # The code here not only include data importing,
@@ -23,151 +23,81 @@ def random_signal(signal, combin_num):
 
     return random_result
 
+# 定义标准化函数
+def standardize(data):
+    mu = np.mean(data, axis=0)
+    sigma = np.std(data, axis=0)
+    standardized_data = (data - mu) / sigma
+    return standardized_data
 
-# 混合EEG和EOG的信号作为有噪声的EEG数据
-def data_prepare(EEG_all, noise_all, combin_num, train_num, test_num):
-    # The code here not only include data importing,
-    # but also data standardization and the generation of analog noise signals
-
-    eeg_train, eeg_test = EEG_all[0:train_num, :], EEG_all[train_num:train_num + test_num, :]
-    noise_train, noise_test = noise_all[0:train_num, :], noise_all[train_num:train_num + test_num, :]
-
-    # 难道combin是为了一个EEG数据混合多次EOG实现一个样本的多种降噪？
-    EEG_train = random_signal(eeg_train, combin_num).reshape(combin_num * eeg_train.shape[0], eeg_train.shape[1])
-    NOISE_train = random_signal(noise_train, combin_num).reshape(combin_num * noise_train.shape[0],
-                                                                 noise_train.shape[1])
-
-    # print(EEG_train.shape)
-    # print(NOISE_train.shape)
-
-    #################################  simulate noise signal of training set  ##############################
-
-    # create random number between -10dB ~ 2dB
-    # SNR is signal-to-noise ratio
-    SNR_train_dB = np.random.uniform(-7, 2, (EEG_train.shape[0]))
-    # print(SNR_train_dB.shape)
-    SNR_train = 10 ** (0.1 * (SNR_train_dB))
-
-    # combin eeg and noise for training set 
-    noiseEEG_train = []
-    NOISE_train_adjust = []
-    for i in range(EEG_train.shape[0]):
-        eeg = EEG_train[i].reshape(EEG_train.shape[1])
-        noise = NOISE_train[i].reshape(NOISE_train.shape[1])
-
-        coe = get_rms(eeg) / (get_rms(noise) * SNR_train[i])
-        noise = noise * coe
-        neeg = noise + eeg  # 直接相加添加噪声
-
-        NOISE_train_adjust.append(noise)
-        noiseEEG_train.append(neeg)
-
-    noiseEEG_train = np.array(noiseEEG_train)
-    NOISE_train_adjust = np.array(NOISE_train_adjust)
-
-    # variance for noisy EEG
-    EEG_train_end_standard = []
-    noiseEEG_train_end_standard = []
-
-    for i in range(noiseEEG_train.shape[0]):
-        # Each epochs divided by the standard deviation
-        eeg_train_all_std = EEG_train[i] / np.std(noiseEEG_train[i])
-        EEG_train_end_standard.append(eeg_train_all_std)
-
-        noiseeeg_train_end_standard = noiseEEG_train[i] / np.std(noiseEEG_train[i])
-        noiseEEG_train_end_standard.append(noiseeeg_train_end_standard)
-
-    noiseEEG_train_end_standard = np.array(noiseEEG_train_end_standard)
-    EEG_train_end_standard = np.array(EEG_train_end_standard)
-
-    #################################  simulate noise signal of test  ##############################
-
-    SNR_test_dB = np.linspace(-7.0, 2.0, num=(10))
-    SNR_test = 10 ** (0.1 * (SNR_test_dB))
-
-    eeg_test = np.array(eeg_test)
-    noise_test = np.array(noise_test)
-
-    # combin eeg and noise for test set 
-    EEG_test = []
-    noise_EEG_test = []
-    for i in range(10):
-
-        noise_eeg_test = []
-        for j in range(eeg_test.shape[0]):
-            eeg = eeg_test[j]
-            noise = noise_test[j]
-
-            coe = get_rms(eeg) / (get_rms(noise) * SNR_test[i])
-            noise = noise * coe
-            neeg = noise + eeg
-
-            noise_eeg_test.append(neeg)
-
-        EEG_test.extend(eeg_test)
-        noise_EEG_test.extend(noise_eeg_test)
-
-    noise_EEG_test = np.array(noise_EEG_test)
-    EEG_test = np.array(EEG_test)
-
-    # std for noisy EEG
-    EEG_test_end_standard = []
-    noiseEEG_test_end_standard = []
-    std_VALUE = []
-    for i in range(noise_EEG_test.shape[0]):
-        # store std value to restore EEG signal
-        std_value = np.std(noise_EEG_test[i])
-        std_VALUE.append(std_value)
-
-        # Each epochs of eeg and neeg was divide by the standard deviation
-        eeg_test_all_std = EEG_test[i] / std_value
-        EEG_test_end_standard.append(eeg_test_all_std)
-
-        noiseeeg_test_end_standard = noise_EEG_test[i] / std_value
-        noiseEEG_test_end_standard.append(noiseeeg_test_end_standard)
-
-    std_VALUE = np.array(std_VALUE)
-    noiseEEG_test_end_standard = np.array(noiseEEG_test_end_standard)
-    EEG_test_end_standard = np.array(EEG_test_end_standard)
-
-    # In order to facilitate the training and application of neural networks,
-    # normalized the noisy EEG signal
-
-    return noiseEEG_train_end_standard, EEG_train_end_standard, noiseEEG_test_end_standard, EEG_test_end_standard, std_VALUE
+# 定义数据准备和处理函数
+def data_prepare(EEG_all, noise_all, combin_num, train_num, val_num, test_num):
+    # 分割数据集
+    split1 = train_num
+    split2 = train_num + val_num
+    eeg_train, eeg_val, eeg_test = np.split(EEG_all, [split1, split2])
+    noise_train, noise_val, noise_test = np.split(noise_all, [split1, split2])
+    
+    # 应用随机信号函数
+    EEG_train = random_signal(eeg_train, combin_num)
+    EEG_val = random_signal(eeg_val, combin_num)
+    EEG_test = random_signal(eeg_test, combin_num)
+    NOISE_train = random_signal(noise_train, combin_num)
+    NOISE_val = random_signal(noise_val, combin_num)
+    NOISE_test = random_signal(noise_test, combin_num)
+    
+    # 生成有噪声的EEG数据
+    def generate_noisy_data(EEG_data, NOISE_data, SNR_dB_range=(-7, 2)):
+        noisy_data_list = []
+        clean_data_list = []
+        for i in range(EEG_data.shape[0]):
+            eeg = EEG_data[i].reshape(-1)
+            noise = NOISE_data[i].reshape(-1)
+            SNR_dB = np.random.uniform(SNR_dB_range[0], SNR_dB_range[1])
+            SNR = 10 ** (SNR_dB / 10)
+            rms_eeg = get_rms(eeg)
+            rms_noise = get_rms(noise)
+            scaled_noise = noise * (rms_eeg / (rms_noise * SNR))
+            noisy_eeg = eeg + scaled_noise
+            noisy_data_list.append(noisy_eeg)
+            clean_data_list.append(eeg)
+        return np.array(noisy_data_list), np.array(clean_data_list)
+    
+    # 处理训练、验证和测试集
+    train_input, train_output = generate_noisy_data(EEG_train, NOISE_train)
+    val_input, val_output = generate_noisy_data(EEG_val, NOISE_val)
+    test_input, test_output = generate_noisy_data(EEG_test, NOISE_test)
+    
+    # 标准化数据
+    train_input = standardize(train_input)
+    val_input = standardize(val_input)
+    test_input = standardize(test_input)
+    
+    # 返回处理后的数据集
+    return train_input, train_output, val_input, val_output, test_input, test_output
 
 
-epochs = 1  # training epoch
-batch_size = 1000  # training batch size
-train_num = 3000  # how many trails for train
-test_num = 400  # how many trails for test
+if __name__ == '__main__':
+    os.chdir(os.path.dirname(__file__))
+    
+    train_num = 3000  # 训练集大小
+    val_num = 500    # 验证集大小
+    test_num = 500   # 测试集大小
+    combin_num = 10  # 混合次数
 
-# 主要为了增加数据数量，不同的EEG和噪声混合会产生更多的数据，同时也可增强模型鲁棒性，引入不同的噪声仍可还原信号
-combin_num = 10  # combin EEG and noise ? times
-
-
-EEG_all = np.load('EEG_all_epochs.npy')
-EOG_all = np.load('EOG_all_epochs.npy')
-EMG_all = np.load('EMG_all_epochs.npy')
-
-EOGEEG_train_input, EOGEEG_train_output, EOGEEG_test_input, EOGEEG_test_output, test_std_VALUE = data_prepare(EEG_all, EOG_all, combin_num,
-                                                                                  train_num, test_num)
-
-EMGEEG_train_input, EMGEEG_train_output, EMGEEG_test_input, EMGEEG_test_output, test_std_VALUE = data_prepare(EEG_all, EMG_all, combin_num,
-                                                                                  train_num, test_num)
-
-train_input = np.vstack((EOGEEG_train_input, EMGEEG_train_input))
-train_output = np.vstack((EOGEEG_train_output, EMGEEG_train_output))
-test_input = np.vstack((EOGEEG_test_input, EMGEEG_test_input))
-test_output = np.vstack((EOGEEG_test_output, EMGEEG_test_output))
-
-np.save('./train_input.npy', train_input)
-np.save('./train_output.npy', train_output)
-np.save('./test_input.npy', test_input)
-np.save('./test_output.npy', test_output)
-
-np.save('./EOG_EEG_test_input.npy', EOGEEG_test_input)
-np.save('./EOG_EEG_test_output.npy', EOGEEG_test_output)
-np.save('./EMG_EEG_test_input.npy', EMGEEG_test_input)
-np.save('./EMG_EEG_test_output.npy', EMGEEG_test_output)
+    # 加载EEG和EOG数据
+    EEG_all = np.load("EEG_all_epochs.npy")
+    EOG_all = np.load("EOG_all_epochs.npy")
+    
+    # 调用data_prepare函数准备数据
+    train_input, train_output, val_input, val_output, test_input, test_output = data_prepare(EEG_all, EOG_all, combin_num, train_num, val_num, test_num)
+    
+    # 保存数据到文件
+    np.save("./train_input.npy", train_input)
+    np.save("./train_output.npy", train_output)
+    np.save("./val_input.npy", val_input)
+    np.save("./val_output.npy", val_output)
+    np.save("./test_input.npy", test_input)
+    np.save("./test_output.npy", test_output)
 
 
