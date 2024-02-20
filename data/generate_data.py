@@ -1,6 +1,7 @@
 import numpy as np
 import math
-
+import os
+os.chdir(os.path.dirname(__file__))
 
 # Author: Haoming Zhang
 # The code here not only include data importing,
