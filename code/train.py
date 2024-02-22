@@ -6,6 +6,8 @@ import os
 import numpy as np
 from network import DeepSeparator
 from torch.optim.lr_scheduler import StepLR
+from tqdm import tqdm
+
 os.chdir(os.path.dirname(__file__))
 
 def standardization(data):
@@ -92,35 +94,25 @@ if os.path.exists('checkpoint/' + model_name + '.pkl'):
     model.load_state_dict(torch.load('checkpoint/' + model_name + '.pkl'))
 
 for epoch in range(epochs):
-
     train_acc = 0
     train_loss = 0
-
     total_train_loss_per_epoch = 0
     average_train_loss_per_epoch = 0
     train_step_num = 0
 
     for step, (train_input, indicator, train_output) in enumerate(train_loader):
-
         train_step_num += 1
-
         indicator = indicator.float().to(device)
         train_input = train_input.float().to(device)
         train_output = train_output.float().to(device)
-
         optimizer.zero_grad()
-
         train_preds = model(train_input, indicator)
-
         train_loss = loss(train_preds, train_output)
-
         total_train_loss_per_epoch += train_loss.item()
-
         train_loss.backward()
         optimizer.step()
 
     average_train_loss_per_epoch = total_train_loss_per_epoch / train_step_num
-
     if epoch % print_loss_frequency == 0:
         print('train loss: ', average_train_loss_per_epoch)
 
@@ -129,26 +121,16 @@ for epoch in range(epochs):
     average_test_loss_per_epoch = 0
 
     if epoch % test_frequency == 0:
-
         for step, (test_input, test_indicator, test_output) in enumerate(test_loader):
-
             test_step_num += 1
-
             test_indicator = test_indicator.float().to(device)
-
             test_input = test_input.float().to(device)
             test_output = test_output.float().to(device)
-
             test_preds = model(test_input, test_indicator)
-
             test_loss = loss(test_preds, test_output)
-
             total_test_loss_per_epoch += test_loss.item()
-
         average_test_loss_per_epoch = total_test_loss_per_epoch / test_step_num
-
         print('--------------test loss: ', average_test_loss_per_epoch)
-
         if average_test_loss_per_epoch < mini_loss:
             print('save model')
             torch.save(model.state_dict(), 'checkpoint/' + model_name + '.pkl')
